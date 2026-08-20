@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happy Birthday</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #e2e8f0;
+            --font-family: 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: var(--font-family);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-color);
+            cursor: pointer;
+        }
+
+        .ambient-light {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 80vw;
+            height: 80vw;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.03) 0%, rgba(15, 23, 42, 0) 70%);
+            transform: translate(-50%, -50%);
+            animation: breathe 8s ease-in-out infinite;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+            50% { transform: translate(-50%, -50%) scale(1.15); opacity: 0.8; }
+        }
+
+        main {
+            text-align: center;
+            z-index: 1;
+            opacity: 0;
+            animation: fadeIn 3s ease-out forwards 1s;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 300;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        p.subtitle {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            opacity: 0.6;
+            font-weight: 200;
+            letter-spacing: 0.2em;
+        }
+
+        .interaction-hint {
+            position: fixed;
+            bottom: 10%;
+            width: 100%;
+            text-align: center;
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.4);
+            animation: pulseHint 2s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        .interaction-hint.hidden {
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulseHint {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-light"></div>
+
+    <main>
+        <h1>Happy Birthday</h1>
+        <p class="subtitle">Make a wish</p>
+    </main>
+
+    <div id="hint" class="interaction-hint">点击屏幕播放</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const hint = document.getElementById('hint');
+            let isPlaying = false;
+            let audioContext;
+            let nextNoteTime = 0;
+            let noteIndex = 0;
+            let timerID;
+
+            const NOTE_FREQUENCIES = {
+                'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
+                'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00,
+                'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
+                'C5': 523.25, 'C#5': 554.37, 'D5': 587.33, 'D#5': 622.25,
+                'E5': 659.25, 'F5': 698.46, 'F#5': 739.99, 'G5': 783.99,
+                'G#5': 830.61, 'A5': 880.00, 'A#5': 932.33, 'B5': 987.77,
+                'C6': 1046.50
+            };
+
+            const LOW_NOTES = {
+                'G3': 196.00, 'A3': 220.00, 'B3': 246.94
+            };
+            
+            const allNotes = { ...LOW_NOTES, ...NOTE_FREQUENCIES };
+
+            const melody = [
+                { note: 'G3', duration: 0.5 }, { note: 'G3', duration: 0.5 }, { note: 'A3', duration: 1 }, { note: 'G3', duration: 1 }, { note: 'C4', duration: 1 }, { note: 'B3', duration: 2 },
+                { note: 'G3', duration: 0.5 }, { note: 'G3', duration: 0.5 }, { note: 'A3', duration: 1 }, { note: 'G3', duration: 1 }, { note: 'D4', duration: 1 }, { note: 'C4', duration: 2 },
+                { note: 'G3', duration: 0.5 }, { note: 'G3', duration: 0.5 }, { note: 'G4', duration: 1 }, { note: 'E4', duration: 1 }, { note: 'C4', duration: 1 }, { note: 'B3', duration: 1 }, { note: 'A3', duration: 1 },
+                { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'E4', duration: 1 }, { note: 'C4', duration: 1 }, { note: 'D4', duration: 1 }, { note: 'C4', duration: 2 }
+            ];
+
+            function initAudio() {
+                if (!audioContext) {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    audioContext = new AudioContextClass();
+                }
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+
+            function playTone(freq, startTime) {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.frequency.value = freq;
+                oscillator.type = 'sine';
+
+                gainNode.gain.setValueAtTime(0.3, startTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 1);
+
+                oscillator.start(startTime);
+                oscillator.stop(startTime + 1);
+            }
+
+            function scheduler() {
+                while (nextNoteTime < audioContext.currentTime + 0.1) {
+                    const noteData = melody[noteIndex];
+                    const freq = allNotes[noteData.note];
+                    
+                    if (freq) {
+                        // --- 修改点：频率乘以 2，升高一个八度 ---
+                        playTone(freq * 2, nextNoteTime);
+                    }
+
+                    const noteDuration = noteData.duration * 0.6;
+                    nextNoteTime += noteDuration;
+                    
+                    noteIndex++;
+                    if (noteIndex >= melody.length) {
+                        noteIndex = 0;
+                        nextNoteTime += 0.5; 
+                    }
+                }
+                timerID = requestAnimationFrame(scheduler);
+            }
+
+            function startMusic() {
+                initAudio();
+                if (isPlaying) return;
+                
+                isPlaying = true;
+                noteIndex = 0;
+                nextNoteTime = audioContext.currentTime + 0.1;
+                
+                hint.style.opacity = '0';
+                setTimeout(() => {
+                    hint.classList.add('hidden');
+                }, 1000);
+
+                scheduler();
+            }
+
+            document.body.addEventListener('click', startMusic, { once: true });
+            hint.style.opacity = '0.5';
+        });
+    </script>
+</body>
+</html>
