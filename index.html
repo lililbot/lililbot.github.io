@@ -104,10 +104,12 @@
 
     <main>
         <h1>Happy Birthday</h1>
-        <p class="subtitle">Make a wish</p>
+        <p class="subtitle">=w=</p>
     </main>
 
-    <div id="hint" class="interaction-hint">点击屏幕播放</div>
+    <!-- 提示改为可复现：播放结束后可以再次点击 -->
+    <div id="hint" class="interaction-hint" style="font-size: 20px; color: #ffffff; font-weight: bold; text-shadow: 0 0 10px rgba(255,255,255,0.9), 0 0 20px rgba(0,191,255,0.7);">点击屏幕试试</div>
+
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -169,12 +171,13 @@
             }
 
             function scheduler() {
+                // 预读取 0.1秒
                 while (nextNoteTime < audioContext.currentTime + 0.1) {
                     const noteData = melody[noteIndex];
                     const freq = allNotes[noteData.note];
                     
                     if (freq) {
-                        // --- 修改点：频率乘以 2，升高一个八度 ---
+                        // 频率乘以 2（高八度）
                         playTone(freq * 2, nextNoteTime);
                     }
 
@@ -182,11 +185,20 @@
                     nextNoteTime += noteDuration;
                     
                     noteIndex++;
+
+                    // --- 修改点：播放完即止，不再循环 ---
                     if (noteIndex >= melody.length) {
-                        noteIndex = 0;
-                        nextNoteTime += 0.5; 
+                        // 停止调度器
+                        cancelAnimationFrame(timerID);
+                        // 重置播放状态，允许用户再次点击重播
+                        isPlaying = false;
+                        // 可选：显示提示文字告知可以再次播放
+                        hint.innerText = "再次点击重播";
+                        hint.style.opacity = '0.3';
+                        return; // 结束当前函数执行
                     }
                 }
+                // 如果没结束，继续调度
                 timerID = requestAnimationFrame(scheduler);
             }
 
@@ -198,7 +210,7 @@
                 noteIndex = 0;
                 nextNoteTime = audioContext.currentTime + 0.1;
                 
-                hint.style.opacity = '0';
+                hint.style.opacity = '0'; // 播放时隐藏提示
                 setTimeout(() => {
                     hint.classList.add('hidden');
                 }, 1000);
@@ -206,7 +218,9 @@
                 scheduler();
             }
 
-            document.body.addEventListener('click', startMusic, { once: true });
+            document.body.addEventListener('click', startMusic);
+            
+            // 初始显示提示
             hint.style.opacity = '0.5';
         });
     </script>
