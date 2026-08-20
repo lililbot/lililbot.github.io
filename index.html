@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Happy Birthday</title>
     <style>
         :root {
@@ -15,31 +15,39 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        body, html {
+        html, body {
             width: 100%;
             height: 100%;
             overflow: hidden;
             background-color: var(--bg-color);
             font-family: var(--font-family);
+            touch-action: manipulation; /* 防止双击缩放 */
+            overscroll-behavior: none;  /* 防止下拉刷新/回弹 */
+        }
+
+        body {
             display: flex;
             justify-content: center;
             align-items: center;
             color: var(--text-color);
             cursor: pointer;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         .ambient-light {
-            position: absolute;
+            position: fixed;
             top: 50%;
             left: 50%;
-            width: 80vw;
-            height: 80vw;
+            width: 120vmin;
+            height: 120vmin;
             background: radial-gradient(circle, rgba(255, 255, 255, 0.03) 0%, rgba(15, 23, 42, 0) 70%);
             transform: translate(-50%, -50%);
             animation: breathe 8s ease-in-out infinite;
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
         }
 
@@ -49,15 +57,17 @@
         }
 
         main {
-            text-align: center;
+            position: relative;
             z-index: 1;
+            text-align: center;
+            padding: 0 16px;
             opacity: 0;
             animation: fadeIn 3s ease-out forwards 1s;
             pointer-events: none;
         }
 
         h1 {
-            font-size: clamp(2rem, 8vw, 5rem);
+            font-size: clamp(2rem, 9vw, 5rem);
             font-weight: 300;
             letter-spacing: 0.1em;
             margin-bottom: 1rem;
@@ -65,7 +75,7 @@
         }
 
         p.subtitle {
-            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            font-size: clamp(0.8rem, 2.5vw, 1.2rem);
             opacity: 0.6;
             font-weight: 200;
             letter-spacing: 0.2em;
@@ -73,17 +83,16 @@
 
         .interaction-hint {
             position: fixed;
-            bottom: 10%;
+            bottom: calc(10% + env(safe-area-inset-bottom)); /* 适配全面屏手势条 */
+            left: 0;
             width: 100%;
             text-align: center;
-            font-size: 0.9rem;
-            color: rgba(255, 255, 255, 0.4);
-            animation: pulseHint 2s ease-in-out infinite;
+            font-size: clamp(1rem, 4vw, 20px);
+            font-weight: bold;
+            z-index: 2;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.9), 0 0 20px rgba(0,191,255,0.7);
             pointer-events: none;
-        }
-
-        .interaction-hint.hidden {
-            opacity: 0;
             transition: opacity 0.5s;
         }
 
@@ -93,8 +102,8 @@
         }
 
         @keyframes pulseHint {
-            0%, 100% { opacity: 0.2; }
-            50% { opacity: 0.6; }
+            0%, 100% { opacity: 0.25; }
+            50% { opacity: 0.7; }
         }
     </style>
 </head>
@@ -107,18 +116,16 @@
         <p class="subtitle">=w=</p>
     </main>
 
-    <!-- 提示改为可复现：播放结束后可以再次点击 -->
-    <div id="hint" class="interaction-hint" style="font-size: 20px; color: #ffffff; font-weight: bold; text-shadow: 0 0 10px rgba(255,255,255,0.9), 0 0 20px rgba(0,191,255,0.7);">点击屏幕试试</div>
-
+    <div id="hint" class="interaction-hint" style="opacity: 0.5; animation: pulseHint 2s ease-in-out infinite;">点击屏幕试试</div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const hint = document.getElementById('hint');
             let isPlaying = false;
-            let audioContext;
+            let audioContext = null;
             let nextNoteTime = 0;
             let noteIndex = 0;
-            let timerID;
+            let timerID = null;
 
             const NOTE_FREQUENCIES = {
                 'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
@@ -133,7 +140,7 @@
             const LOW_NOTES = {
                 'G3': 196.00, 'A3': 220.00, 'B3': 246.94
             };
-            
+
             const allNotes = { ...LOW_NOTES, ...NOTE_FREQUENCIES };
 
             const melody = [
@@ -143,13 +150,18 @@
                 { note: 'F4', duration: 0.5 }, { note: 'F4', duration: 0.5 }, { note: 'E4', duration: 1 }, { note: 'C4', duration: 1 }, { note: 'D4', duration: 1 }, { note: 'C4', duration: 2 }
             ];
 
-            function initAudio() {
+            // ① 创建/恢复 AudioContext —— 必须在用户手势中，且等待异步 resume
+            async function initAudio() {
                 if (!audioContext) {
-                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                    audioContext = new AudioContextClass();
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    audioContext = new AC();
                 }
                 if (audioContext.state === 'suspended') {
-                    audioContext.resume();
+                    await audioContext.resume();
+                }
+                // 兜底：部分安卓机首次 resume 后仍可能 suspended
+                if (audioContext.state !== 'running') {
+                    await audioContext.resume();
                 }
             }
 
@@ -163,65 +175,84 @@
                 oscillator.frequency.value = freq;
                 oscillator.type = 'sine';
 
-                gainNode.gain.setValueAtTime(0.3, startTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 1);
+                // ② 用线性淡入避免移动端爆音，包络缩短适配短音符
+                const dur = 0.9;
+                gainNode.gain.setValueAtTime(0.0001, startTime);
+                gainNode.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
 
                 oscillator.start(startTime);
-                oscillator.stop(startTime + 1);
+                oscillator.stop(startTime + dur + 0.05);
             }
 
             function scheduler() {
-                // 预读取 0.1秒
-                while (nextNoteTime < audioContext.currentTime + 0.1) {
+                while (nextNoteTime < audioContext.currentTime + 0.15) {
+                    if (noteIndex >= melody.length) break;
+
                     const noteData = melody[noteIndex];
                     const freq = allNotes[noteData.note];
-                    
                     if (freq) {
-                        // 频率乘以 2（高八度）
                         playTone(freq * 2, nextNoteTime);
                     }
-
-                    const noteDuration = noteData.duration * 0.6;
-                    nextNoteTime += noteDuration;
-                    
+                    nextNoteTime += noteData.duration * 0.6;
                     noteIndex++;
-
-                    // --- 修改点：播放完即止，不再循环 ---
-                    if (noteIndex >= melody.length) {
-                        // 停止调度器
-                        cancelAnimationFrame(timerID);
-                        // 重置播放状态，允许用户再次点击重播
-                        isPlaying = false;
-                        // 可选：显示提示文字告知可以再次播放
-                        hint.innerText = "再次点击重播";
-                        hint.style.opacity = '0.3';
-                        return; // 结束当前函数执行
-                    }
                 }
-                // 如果没结束，继续调度
-                timerID = requestAnimationFrame(scheduler);
+
+                // ③ 播放结束
+                if (noteIndex >= melody.length && nextNoteTime < audioContext.currentTime) {
+                    stopMusic();
+                    hint.innerText = "再次点击重播";
+                    hint.style.animation = 'none';
+                    hint.style.opacity = '0.5';
+                    return;
+                }
+                timerID = setTimeout(scheduler, 40); // 用 setTimeout 而非 rAF，后台也稳定
             }
 
-            function startMusic() {
-                initAudio();
+            function stopMusic() {
+                if (timerID) { clearTimeout(timerID); timerID = null; }
+                isPlaying = false;
+            }
+
+            async function startMusic() {
                 if (isPlaying) return;
-                
+                try {
+                    await initAudio();
+                } catch (e) {
+                    return; // 激活失败，等待下次点击
+                }
+                if (audioContext.state !== 'running') return;
+
                 isPlaying = true;
                 noteIndex = 0;
-                nextNoteTime = audioContext.currentTime + 0.1;
-                
-                hint.style.opacity = '0'; // 播放时隐藏提示
-                setTimeout(() => {
-                    hint.classList.add('hidden');
-                }, 1000);
+                nextNoteTime = audioContext.currentTime + 0.15;
+
+                hint.style.animation = 'none';
+                hint.style.opacity = '0';
 
                 scheduler();
             }
 
-            document.body.addEventListener('click', startMusic);
-            
-            // 初始显示提示
-            hint.style.opacity = '0.5';
+            // ④ 使用 pointerdown，安卓上响应即时；同时移除穿透触发的 click 重复调用
+            document.body.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                startMusic();
+            }, { passive: false });
+
+            // 防止安卓双击缩放
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', (e) => {
+                const now = Date.now();
+                if (now - lastTouchEnd <= 300) e.preventDefault();
+                lastTouchEnd = now;
+            }, { passive: false });
+
+            // ⑤ 切后台回来时恢复音频上下文
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && audioContext && audioContext.state === 'suspended' && isPlaying) {
+                    audioContext.resume();
+                }
+            });
         });
     </script>
 </body>
